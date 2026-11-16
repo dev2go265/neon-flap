@@ -2,7 +2,8 @@
 html, body { background: #050510; color: #e8f6ff; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; }
 body { min-height: 100vh; display: flex; justify-content: center; }
 .wrap { width: 100%; max-width: 520px; padding: 12px 12px 24px; text-align: center; }
-.title { font-size: 34px; letter-spacing: 6px; color: #39ffeb; text-shadow: 0 0 12px #39ffeb, 0 0 32px #39ffeb88; margin: 6px 0 10px; }
+.title { font-size: 34px; letter-spacing: 6px; color: #39ffeb; text-shadow: 0 0 12px #39ffeb, 0 0 32px #39ffeb88; margin: 6px 0 10px; animation: titlePulse 2.4s ease-in-out infinite; }
+@keyframes titlePulse { 0%, 100% { text-shadow: 0 0 12px #39ffeb, 0 0 32px #39ffeb88; } 50% { text-shadow: 0 0 18px #39ffeb, 0 0 48px #39ffebcc, 0 0 70px #ff2fd688; } }
 .title span { color: #ff2fd6; text-shadow: 0 0 12px #ff2fd6, 0 0 32px #ff2fd688; }
 .hud { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 17px; }
 .hud b { color: #ffe14d; }
