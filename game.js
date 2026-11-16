@@ -34,6 +34,15 @@ let particles = [];
 let popups = [];
 let stars = [];
 let frame = 0, lastTs = 0, overAt = 0, shake = 0;
+let flash = 0, hillOff = 0, cityOff = 0;
+// Auto-lower effects on small screens so phones hold 60fps.
+const LOW_FX = (typeof window !== 'undefined' && (window.innerWidth || 800)) < 480;
+const FX = LOW_FX ? 0.5 : 1;          // particle count multiplier
+const GLOW = (v) => LOW_FX ? v * 0.5 : v; // shadowBlur scaler
+const clouds = [];
+for (let i = 0; i < 6; i++) clouds.push({ x: Math.random() * W, y: 60 + Math.random() * 180, s: 30 + Math.random() * 50, sp: 0.15 + Math.random() * 0.25 });
+const CITY = [60, 110, 80, 130, 95, 70, 120, 85];
+const CITY_W = 66, CITY_TILE = CITY.length * CITY_W;
 
 for (let i = 0; i < 90; i++) {
   stars.push({ x: Math.random() * W, y: Math.random() * (H - GROUND_H), s: Math.random() * 2 + 0.5, tw: Math.random() * Math.PI * 2 });
@@ -132,7 +141,7 @@ function endGame(won, reason) {
   overScore.textContent = String(score);
   overBest.textContent = String(best);
   showPanel('over');
-  if (won) sfxWin(); else { sfxHit(); burst(bird.x, bird.y, '#ff2fd6', 26); shake = 14; }
+  if (won) sfxWin(); else { sfxHit(); burst(bird.x, bird.y, '#ff2fd6', 16); burst(bird.x, bird.y, '#ffe14d', 14, true); shake = 14; }
 }
 function togglePause() {
   if (state === 'playing') { state = 'paused'; showPanel('pause'); }
@@ -151,10 +160,20 @@ function spawnPipe(x) {
   const gapY = minY + Math.random() * (maxY - minY);
   pipes.push({ x: x, gapY: gapY, gapH: PIPE_GAP, scored: false });
 }
-function burst(x, y, color, n) {
-  for (let i = 0; i < n; i++) {
+function burst(x, y, color, n, feathers) {
+  const count = Math.max(2, Math.round(n * FX));
+  for (let i = 0; i < count; i++) {
     const a = Math.random() * Math.PI * 2, sp = 1 + Math.random() * 4;
-    particles.push({ x: x, y: y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 30 + Math.random() * 20, color: color, size: 2 + Math.random() * 3 });
+    const p = { x: x, y: y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 30 + Math.random() * 20, color: color, size: 2 + Math.random() * 3 };
+    if (feathers) {
+      p.kind = 'feather';
+      p.color = ['#ff2fd6', '#ffe14d', '#ffffff', '#39ffeb'][i % 4];
+      p.rot = Math.random() * Math.PI * 2;
+      p.vr = (Math.random() - 0.5) * 0.3;
+      p.size = 5 + Math.random() * 5;
+      p.life = 45 + Math.random() * 25;
+    }
+    particles.push(p);
   }
 }
 function spawnTrail() {
@@ -168,12 +187,19 @@ function update(dt) {
   for (let i = particles.length - 1; i >= 0; i--) {
     const p = particles[i];
     p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 0.05 * dt; p.life -= dt;
+    if (p.kind === 'feather') { p.rot += p.vr * dt; p.vy = Math.min(p.vy, 1.2); p.vx *= 0.99; }
     if (p.life <= 0) particles.splice(i, 1);
   }
   for (let i = popups.length - 1; i >= 0; i--) {
     popups[i].y -= 0.8 * dt; popups[i].life -= dt;
     if (popups[i].life <= 0) popups.splice(i, 1);
   }
+  // Parallax scroll: hills 0.3x, city 0.7x, clouds drift on their own.
+  const scrollSpeed = state === 'playing' ? (BASE_SPEED * speedMult + Math.min(score * 0.03, 0.6)) : (state === 'title' ? 1.2 : 0);
+  hillOff = (hillOff + scrollSpeed * 0.3 * dt) % 480;
+  cityOff = (cityOff + scrollSpeed * 0.7 * dt) % CITY_TILE;
+  for (const c of clouds) { c.x -= c.sp * dt; if (c.x < -130) { c.x = W + 130; c.y = 60 + Math.random() * 180; } }
+  if (flash > 0) flash = Math.max(0, flash - 0.03 * dt);
   if (state === 'title') {
     bird.y = H / 2 + Math.sin(frame * 0.05) * 24;
     bird.wing = Math.sin(frame * 0.3) * 0.5 + 0.5;
@@ -214,6 +240,7 @@ function update(dt) {
       score++;
       updateHud();
       sfxScore();
+      flash = 1;
       popups.push({ x: bird.x + 20, y: bird.y - 24, text: '+1', life: 40 });
       burst(bird.x + 14, bird.y, '#ffe14d', 10);
       if (score >= WIN_SCORE) { endGame(true); return; }
@@ -233,30 +260,94 @@ function draw() {
   ctx.save();
   if (shake > 0) { ctx.translate((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake); shake *= 0.88; if (shake < 0.5) shake = 0; }
 
+  // Neon sunset sky
   const bg = ctx.createLinearGradient(0, 0, 0, H);
-  bg.addColorStop(0, '#0a0a2e'); bg.addColorStop(0.6, '#12083a'); bg.addColorStop(1, '#1a0b2e');
+  bg.addColorStop(0, '#070718');
+  bg.addColorStop(0.35, '#1a0b3d');
+  bg.addColorStop(0.62, '#4a1158');
+  bg.addColorStop(0.8, '#a12a5e');
+  bg.addColorStop(0.92, '#ff6a3d');
   ctx.fillStyle = bg; ctx.fillRect(-20, -20, W + 40, H + 40);
 
-  // stars
+  // Retro sun with scanline stripes
+  const sunX = W * 0.68, sunY = H - GROUND_H - 170, sunR = 92;
+  const sunGlow = ctx.createRadialGradient(sunX, sunY, sunR * 0.2, sunX, sunY, sunR * 2.1);
+  sunGlow.addColorStop(0, 'rgba(255,150,60,0.55)');
+  sunGlow.addColorStop(0.5, 'rgba(255,80,120,0.18)');
+  sunGlow.addColorStop(1, 'rgba(255,80,120,0)');
+  ctx.fillStyle = sunGlow;
+  ctx.fillRect(sunX - sunR * 2.1, sunY - sunR * 2.1, sunR * 4.2, sunR * 4.2);
+  ctx.save();
+  ctx.beginPath(); ctx.arc(sunX, sunY, sunR, 0, Math.PI * 2); ctx.clip();
+  const sunGrad = ctx.createLinearGradient(0, sunY - sunR, 0, sunY + sunR);
+  sunGrad.addColorStop(0, '#ffe14d'); sunGrad.addColorStop(0.55, '#ff9d3d'); sunGrad.addColorStop(1, '#ff2f7a');
+  ctx.fillStyle = sunGrad;
+  ctx.fillRect(sunX - sunR, sunY - sunR, sunR * 2, sunR * 2);
+  ctx.fillStyle = 'rgba(26,11,61,0.85)';
+  let stripeY = sunY + 8, stripeH = 3;
+  while (stripeY < sunY + sunR) { ctx.fillRect(sunX - sunR, stripeY, sunR * 2, stripeH); stripeY += stripeH + 12; stripeH += 2.5; }
+  ctx.restore();
+
+  // stars (only in the dark upper sky)
   for (const s of stars) {
+    if (s.y > H * 0.45) continue;
     ctx.globalAlpha = 0.4 + 0.6 * Math.abs(Math.sin(s.tw));
     ctx.fillStyle = '#bfefff';
     ctx.fillRect(s.x, s.y, s.s, s.s);
   }
   ctx.globalAlpha = 1;
 
-  // skyline
-  ctx.fillStyle = '#0d0d28';
-  const skyline = [60, 110, 80, 130, 95, 70, 120, 85];
-  let sx = -10;
-  for (const h of skyline) { ctx.fillRect(sx, H - GROUND_H - h, 66, h); sx += 66; }
-  ctx.fillStyle = '#ffe14d';
-  for (let i = 0; i < 24; i++) {
-    const wx = (i * 67) % W, wy = H - GROUND_H - 30 - ((i * 53) % 120);
-    ctx.globalAlpha = 0.5;
-    ctx.fillRect(wx, wy, 4, 5);
+  // Drifting neon clouds
+  for (const c of clouds) {
+    ctx.globalAlpha = 0.16;
+    ctx.fillStyle = '#ff9de2';
+    ctx.shadowColor = '#ff9de2'; ctx.shadowBlur = GLOW(18);
+    ctx.beginPath();
+    ctx.ellipse(c.x, c.y, c.s, c.s * 0.32, 0, 0, Math.PI * 2);
+    ctx.ellipse(c.x + c.s * 0.5, c.y + 5, c.s * 0.6, c.s * 0.26, 0, 0, Math.PI * 2);
+    ctx.fill();
   }
+  ctx.shadowBlur = 0;
   ctx.globalAlpha = 1;
+
+  // Distant hills ridge (0.3x parallax)
+  ctx.fillStyle = '#1c0d3f';
+  ctx.beginPath();
+  ctx.moveTo(-20, H - GROUND_H + 2);
+  for (let x = -20; x <= W + 20; x += 12) {
+    const wx = x + hillOff;
+    ctx.lineTo(x, H - GROUND_H - 34 - (Math.sin(wx * 0.021) * 16 + Math.sin(wx * 0.008 + 2) * 24));
+  }
+  ctx.lineTo(W + 20, H - GROUND_H + 2);
+  ctx.closePath(); ctx.fill();
+  // Ridge glow line
+  ctx.strokeStyle = 'rgba(255,47,214,0.35)'; ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  for (let x = -20; x <= W + 20; x += 12) {
+    const wx = x + hillOff;
+    const y = H - GROUND_H - 34 - (Math.sin(wx * 0.021) * 16 + Math.sin(wx * 0.008 + 2) * 24);
+    if (x === -20) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+
+  // Near skyline (0.7x parallax, wraps on a tile)
+  for (let tile = 0; tile < 2; tile++) {
+    const baseX = -cityOff + tile * CITY_TILE;
+    for (let i = 0; i < CITY.length; i++) {
+      const bx = baseX + i * CITY_W, bh = CITY[i];
+      ctx.fillStyle = '#0d0d28';
+      ctx.fillRect(bx, H - GROUND_H - bh, CITY_W - 4, bh);
+      ctx.fillStyle = '#ffe14d';
+      for (let r = 0; r < 3; r++) {
+        for (let col = 0; col < 2; col++) {
+          if ((i * 7 + r * 3 + col) % 3 === 0) continue;
+          ctx.globalAlpha = 0.55;
+          ctx.fillRect(bx + 10 + col * 26, H - GROUND_H - bh + 14 + r * 26, 5, 6);
+        }
+      }
+      ctx.globalAlpha = 1;
+    }
+  }
 
   // pipes
   for (const p of pipes) drawPipe(p);
@@ -265,7 +356,7 @@ function draw() {
   ctx.fillStyle = '#0a0a20';
   ctx.fillRect(-20, H - GROUND_H, W + 40, GROUND_H);
   ctx.fillStyle = '#39ffeb';
-  ctx.shadowColor = '#39ffeb'; ctx.shadowBlur = 14;
+  ctx.shadowColor = '#39ffeb'; ctx.shadowBlur = GLOW(14);
   ctx.fillRect(-20, H - GROUND_H, W + 40, 4);
   ctx.shadowBlur = 0;
   ctx.fillStyle = '#ff2fd6';
@@ -274,29 +365,42 @@ function draw() {
   // bird
   drawBird();
 
-  // particles
+  // particles (sparkles + feathers)
   for (const pt of particles) {
     ctx.globalAlpha = Math.max(0, pt.life / 40);
     ctx.fillStyle = pt.color;
-    ctx.beginPath(); ctx.arc(pt.x, pt.y, pt.size, 0, Math.PI * 2); ctx.fill();
+    if (pt.kind === 'feather') {
+      ctx.save();
+      ctx.translate(pt.x, pt.y);
+      ctx.rotate(pt.rot || 0);
+      ctx.shadowColor = pt.color; ctx.shadowBlur = GLOW(8);
+      ctx.beginPath(); ctx.ellipse(0, 0, pt.size, pt.size * 0.45, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    } else {
+      ctx.shadowColor = pt.color; ctx.shadowBlur = GLOW(8);
+      ctx.beginPath(); ctx.arc(pt.x, pt.y, pt.size, 0, Math.PI * 2); ctx.fill();
+    }
   }
+  ctx.shadowBlur = 0;
   ctx.globalAlpha = 1;
 
-  // score popups
+  // score popups (glowing)
   ctx.font = 'bold 20px sans-serif';
   ctx.textAlign = 'center';
   for (const pp of popups) {
     ctx.globalAlpha = Math.max(0, pp.life / 40);
     ctx.fillStyle = '#ffe14d';
+    ctx.shadowColor = '#ffe14d'; ctx.shadowBlur = GLOW(14);
     ctx.fillText(pp.text, pp.x, pp.y);
   }
+  ctx.shadowBlur = 0;
   ctx.globalAlpha = 1;
 
   // big score
   if (state === 'playing' || state === 'paused') {
     ctx.font = 'bold 52px sans-serif';
     ctx.textAlign = 'center';
-    ctx.shadowColor = '#39ffeb'; ctx.shadowBlur = 18;
+    ctx.shadowColor = '#39ffeb'; ctx.shadowBlur = GLOW(18);
     ctx.fillStyle = '#ffffff';
     ctx.fillText(String(score), W / 2, 78);
     ctx.shadowBlur = 0;
@@ -305,11 +409,16 @@ function draw() {
     ctx.fillText('of ' + WIN_SCORE + ' pipes', W / 2, 104);
   }
   ctx.restore();
+  // Score flash overlay (drawn unshaken, on top of everything)
+  if (flash > 0) {
+    ctx.fillStyle = 'rgba(125,249,255,' + (flash * 0.18).toFixed(3) + ')';
+    ctx.fillRect(0, 0, W, H);
+  }
 }
 function drawPipe(p) {
   const topH = p.gapY - p.gapH / 2, botY = p.gapY + p.gapH / 2;
   ctx.save();
-  ctx.shadowColor = '#2bff5e'; ctx.shadowBlur = 16;
+  ctx.shadowColor = '#2bff5e'; ctx.shadowBlur = GLOW(16);
   ctx.fillStyle = '#0f3d1e';
   ctx.strokeStyle = '#2bff5e'; ctx.lineWidth = 3;
   // top pipe
@@ -333,7 +442,7 @@ function drawBird() {
   ctx.translate(bird.x, bird.y);
   const tilt = Math.max(-0.45, Math.min(0.55, bird.vy * 0.045));
   ctx.rotate(tilt);
-  ctx.shadowColor = '#ff2fd6'; ctx.shadowBlur = 20;
+  ctx.shadowColor = '#ff2fd6'; ctx.shadowBlur = GLOW(20);
   // body
   const grad = ctx.createLinearGradient(-16, -16, 16, 16);
   grad.addColorStop(0, '#ff7ae8'); grad.addColorStop(1, '#ff2fd6');
